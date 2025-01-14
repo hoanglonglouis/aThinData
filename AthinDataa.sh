@@ -15,13 +15,16 @@ user_data_path="/tmp/user_data.sh"
 curl -s $user_data_url -o $user_data_path
 chmod +x $user_data_path
 
+# Convert user_data to base64
+user_data_base64=$(base64 --wrap=0 $user_data_path)
+
 # Iterate over each region
 for region in "${!region_image_map[@]}"; do
     echo "Processing region: $region"
-
+    
     # Get the image ID for the region
     image_id=${region_image_map[$region]}
-
+    
     # Check if Key Pair exists
     key_name="GodLong-$region"
     if aws ec2 describe-key-pairs --key-names $key_name --region $region > /dev/null 2>&1; then
@@ -35,7 +38,7 @@ for region in "${!region_image_map[@]}"; do
         chmod 400 ${key_name}.pem
         echo "Key Pair $key_name created in $region"
     fi
-
+    
     # Check if Security Group exists
     sg_name="Random-$region"
     sg_id=$(aws ec2 describe-security-groups --group-names $sg_name --region $region --query "SecurityGroups[0].GroupId" --output text 2>/dev/null)
@@ -50,7 +53,7 @@ for region in "${!region_image_map[@]}"; do
     else
         echo "Security Group $sg_name already exists with ID $sg_id in $region"
     fi
-
+    
     # Check if SSH Port Rule exists
     if ! aws ec2 describe-security-groups --group-ids $sg_id --region $region \
          --query "SecurityGroups[0].IpPermissions[?FromPort==\`22\` && ToPort==\`22\` && IpRanges[?CidrIp==\`0.0.0.0/0\`]].IpRanges" \
@@ -65,18 +68,7 @@ for region in "${!region_image_map[@]}"; do
     else
         echo "SSH (22) access already configured for Security Group $sg_name in $region"
     fi
-
-    # Create Launch Template
-    launch_template_name="SpotLaunchTemplate-$region"
-    launch_template_id=$(aws ec2 create-launch-template \
-        --launch-template-name $launch_template_name \
-        --version-description "Version1" \
-        --launch-template-data "{ \"ImageId\": \"$image_id\", \"InstanceType\": \"c7i.16xlarge\", \"KeyName\": \"$key_name\", \"SecurityGroupIds\": [\"$sg_id\"], \"UserData\": \"$(base64 --wrap=0 $user_data_path)\" }" \
-        --region $region \
-        --query "LaunchTemplate.LaunchTemplateId" \
-        --output text)
-    echo "Launch Template $launch_template_name created with ID $launch_template_id in $region"
-
+    
     # Launch 1 On-Demand EC2 Instance
     instance_id=$(aws ec2 run-instances \
         --image-id $image_id \
@@ -84,7 +76,7 @@ for region in "${!region_image_map[@]}"; do
         --instance-type c7i.16xlarge \
         --key-name $key_name \
         --security-group-ids $sg_id \
-        --user-data file://$user_data_path \
+        --user-data "$user_data_base64" \
         --region $region \
         --query "Instances[0].InstanceId" \
         --output text)
