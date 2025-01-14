@@ -4,7 +4,7 @@
 declare -A region_image_map=(
     ["us-east-1"]="ami-0e2c8caa4b6378d8c"
     ["us-west-2"]="ami-05d38da78ce859165"
-    ["ap-northeast-1"]="ami-0b2cd2a95639e0e5b"
+    ["eu-central-1"]="ami-0a628e1e89aaedf80"
 )
 
 # GitHub URL containing encrypted user-data
