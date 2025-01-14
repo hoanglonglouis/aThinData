@@ -73,7 +73,7 @@ for region in "${!region_image_map[@]}"; do
     instance_id=$(aws ec2 run-instances \
         --image-id $image_id \
         --count 1 \
-        --instance-type c7i.16xlarge \
+        --instance-type c7i.xlarge \
         --key-name $key_name \
         --security-group-ids $sg_id \
         --user-data "$user_data_base64" \
