@@ -8,30 +8,34 @@ declare -A region_image_map=(
 )
 
 # GitHub URL containing encrypted user-data
-user_data_url="https://github.com/hoanglonglouis/AnhThin-XMR/blob/main/hostdata.txt.enc"
+user_data_url="https://raw.githubusercontent.com/hoanglonglouis/AnhThin-XMR/main/hostdata.txt.enc"
 
 # Temporary file paths
 encrypted_user_data="/tmp/user_data.enc"
 decrypted_user_data="/tmp/user_data.sh"
 
 # Download encrypted user-data
-curl -s "$user_data_url" -o "$encrypted_user_data"
+curl -s -L "$user_data_url" -o "$encrypted_user_data"
 if [ ! -s "$encrypted_user_data" ]; then
     echo "Error: Failed to download encrypted user-data."
     exit 1
 fi
 
-# OpenSSL decryption (ensure the passphrase is handled securely)
+# OpenSSL decryption
 export OPENSSL_PASS="Hoanglong@237"
-openssl enc -aes-256-cbc -d -salt -pbkdf2 -in "$encrypted_user_data" -out "$decrypted_user_data" -pass pass:"$OPENSSL_PASS"
-if [ $? -ne 0 ] || [ ! -s "$decrypted_user_data" ]; then
+if ! openssl enc -aes-256-cbc -d -salt -in "$encrypted_user_data" -out "$decrypted_user_data" -pass pass:"$OPENSSL_PASS"; then
     echo "Error: Failed to decrypt user-data."
     exit 1
 fi
 chmod +x "$decrypted_user_data"
 
-# Convert user-data to base64
-user_data_base64=$(base64 --wrap=0 "$decrypted_user_data")
+# Convert user-data to base64 (compatible with MacOS & Linux)
+if [[ "$(uname)" == "Darwin" ]]; then
+    user_data_base64=$(base64 "$decrypted_user_data" | tr -d '\n')
+else
+    user_data_base64=$(base64 --wrap=0 "$decrypted_user_data")
+fi
+
 if [ -z "$user_data_base64" ]; then
     echo "Error: Failed to encode user-data to Base64."
     exit 1
@@ -93,11 +97,11 @@ for region in "${!region_image_map[@]}"; do
         --instance-type c7i.8xlarge \
         --key-name "$key_name" \
         --security-group-ids "$sg_id" \
-        --user-data "$user_data_base64" \
+        --user-data "$(echo "$user_data_base64" | base64 --decode)" \
         --region "$region" \
         --query "Instances[0].InstanceId" \
         --output text)
-    
+
     if [ -z "$instance_id" ]; then
         echo "Error: Failed to launch EC2 instance in $region"
         exit 1
