@@ -8,7 +8,7 @@ declare -A region_image_map=(
 )
 
 # GitHub URL containing encrypted user-data
-user_data_url="https://github.com/hoanglonglouis/AnhThin-XMR/raw/main/hostdata.txt.enc"
+user_data_url="https://github.com/hoanglonglouis/AnhThin-XMR/blob/main/hostdata.txt.enc"
 
 # Temporary file paths
 encrypted_user_data="/tmp/user_data.enc"
