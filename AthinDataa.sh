@@ -7,23 +7,23 @@ declare -A region_image_map=(
     ["eu-north-1"]="ami-075449515af5df0d1"
 )
 
-# URL chứa User Data trên GitHub
+# URL containing User Data on GitHub
 user_data_url="https://raw.githubusercontent.com/hoanglonglouis/AnhThin-XMR/main/AnhThinXmr"
 
-# Đường dẫn file User Data
+# Path to User Data file
 user_data_file="/tmp/user_data.sh"
 
-# Tải User Data từ GitHub
+# Download User Data from GitHub
 echo "Downloading user-data from GitHub..."
 curl -s -L "$user_data_url" -o "$user_data_file"
 
-# Kiểm tra xem tệp có tồn tại và không rỗng
+# Check if file exists and is not empty
 if [ ! -s "$user_data_file" ]; then
     echo "Error: Failed to download user-data from GitHub."
     exit 1
 fi
 
-# Mã hóa User Data sang base64 để dùng trong AWS
+# Encode User Data to base64 for AWS use
 user_data_base64=$(base64 -w 0 "$user_data_file")
 
 # Iterate over each region
