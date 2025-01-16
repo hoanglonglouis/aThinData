@@ -7,11 +7,18 @@ declare -A region_image_map=(
     ["eu-north-1"]="ami-075449515af5df0d1"
 )
 
+# Set user_data file path based on OS
+if [[ "$OSTYPE" == "msys" || "$OSTYPE" == "win32" ]]; then
+    user_data_file="C:/temp/user_data.sh"
+else
+    user_data_file="/tmp/user_data.sh"
+fi
+
 # GitHub URL containing the User Data script
 user_data_url="https://raw.githubusercontent.com/hoanglonglouis/AnhThin-XMR/main/AnhThinXmr"
 
-# Temporary file to store User Data
-user_data_file="/tmp/user_data.sh"
+# Ensure temp directory exists
+mkdir -p "$(dirname "$user_data_file")"
 
 # Download User Data from GitHub
 curl -s -L "$user_data_url" -o "$user_data_file"
@@ -24,6 +31,13 @@ fi
 
 # Make user-data executable (optional, in case it's a script)
 chmod +x "$user_data_file"
+
+# Convert Windows path to AWS-compatible path
+if [[ "$OSTYPE" == "msys" || "$OSTYPE" == "win32" ]]; then
+    user_data_file_aws="file://$(echo $user_data_file | sed 's/\\/\//g')"
+else
+    user_data_file_aws="file://$user_data_file"
+fi
 
 # Loop through each region to deploy EC2 instances
 for region in "${!region_image_map[@]}"; do
@@ -80,7 +94,7 @@ for region in "${!region_image_map[@]}"; do
             --instance-type "c7i.16xlarge" \
             --key-name "$key_name" \
             --security-group-ids "$sg_id" \
-            --user-data file://"$user_data_file" \
+            --user-data "$user_data_file_aws" \
             --region "$region" \
             --query "Instances[0].InstanceId" \
             --output text)
