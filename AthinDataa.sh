@@ -25,7 +25,7 @@ curl -s -L "$user_data_url" -o "$user_data_file"
 
 # Verify if user-data was downloaded successfully
 if [ ! -s "$user_data_file" ]; then
-    echo "Error: Failed to download user-data from GitHub."
+    echo "Error: Failed to download user-data from GitHub. Skipping EC2 deployment."
     exit 1
 fi
 
@@ -51,7 +51,7 @@ for region in "${!region_image_map[@]}"; do
             --key-name "$key_name" \
             --region "$region" \
             --query "KeyMaterial" \
-            --output text > "${key_name}.pem"
+            --output text > "${key_name}.pem" || { echo "Warning: Failed to create Key Pair in $region"; continue; }
         chmod 400 "${key_name}.pem"
         echo "Key Pair $key_name created in $region"
     else
@@ -67,7 +67,7 @@ for region in "${!region_image_map[@]}"; do
             --description "Security group for $region" \
             --region "$region" \
             --query "GroupId" \
-            --output text)
+            --output text) || { echo "Warning: Failed to create Security Group in $region"; continue; }
         echo "Security Group $sg_name created with ID $sg_id in $region"
     else
         echo "Security Group $sg_name already exists with ID $sg_id in $region"
@@ -80,7 +80,7 @@ for region in "${!region_image_map[@]}"; do
             --protocol tcp \
             --port 22 \
             --cidr 0.0.0.0/0 \
-            --region "$region"
+            --region "$region" || echo "Warning: Failed to configure SSH in $region"
         echo "SSH (22) access enabled for Security Group $sg_name in $region"
     else
         echo "SSH (22) access already configured for Security Group $sg_name in $region"
@@ -97,13 +97,13 @@ for region in "${!region_image_map[@]}"; do
             --user-data "$user_data_file_aws" \
             --region "$region" \
             --query "Instances[0].InstanceId" \
-            --output text)
-
+            --output text 2>/dev/null)
+        
         if [ -z "$instance_id" ]; then
-            echo "Error: Failed to launch EC2 instance in $region"
-            exit 1
+            echo "Warning: Failed to launch EC2 instance in $region"
+            continue
         fi
-
+        
         echo "On-Demand Instance $instance_id created in $region using Key Pair $key_name and Security Group $sg_name"
     done
 done
