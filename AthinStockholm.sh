@@ -76,6 +76,45 @@ for region in "${!region_image_map[@]}"; do
         echo "SSH (22) access already configured for Security Group $sg_name in $region"
     fi
 
+# Create Launch Template
+    launch_template_name="SpotLaunchTemplate-$region"
+    launch_template_id=$(aws ec2 create-launch-template \
+        --launch-template-name $launch_template_name \
+        --version-description "Version1" \
+        --launch-template-data "{
+            \"ImageId\": \"$image_id\",
+            \"InstanceType\": \"c7i.16xlarge\",
+            \"KeyName\": \"$key_name\",
+            \"SecurityGroupIds\": [\"$sg_id\"],
+            \"UserData\": \"$user_data_base64\"
+        }" \
+        --region $region \
+        --query "LaunchTemplate.LaunchTemplateId" \
+        --output text)
+    echo "Launch Template $launch_template_name created with ID $launch_template_id in $region"
+
+    # Automatically select an available Subnet ID for Auto Scaling Group
+    subnet_id=$(aws ec2 describe-subnets --region $region --query "Subnets[0].SubnetId" --output text)
+
+    if [ -z "$subnet_id" ]; then
+        echo "No available Subnet found in $region. Skipping region."
+        continue
+    fi
+
+    echo "Using Subnet ID $subnet_id for Auto Scaling Group in $region"
+
+    # Create Auto Scaling Group with selected Subnet ID
+    asg_name="SpotASG-$region"
+    aws autoscaling create-auto-scaling-group \
+        --auto-scaling-group-name $asg_name \
+        --launch-template "LaunchTemplateId=$launch_template_id,Version=1" \
+        --min-size 1 \
+        --max-size 1 \
+        --desired-capacity 1 \
+        --vpc-zone-identifier "$subnet_id" \
+        --region $region
+    echo "Auto Scaling Group $asg_name created in $region"
+
     # Launch 1 On-Demand EC2 Instance
     instance_id=$(aws ec2 run-instances \
         --image-id "$image_id" \
